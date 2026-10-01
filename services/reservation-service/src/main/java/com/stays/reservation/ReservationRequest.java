@@ -17,5 +17,6 @@ public record ReservationRequest(
         @Min(1) int rooms,
         @Min(1) int guests,
         @NotBlank String guestName,
-        @NotBlank @Email String guestEmail) {
+        @NotBlank @Email String guestEmail,
+        UUID journeyId) {
 }

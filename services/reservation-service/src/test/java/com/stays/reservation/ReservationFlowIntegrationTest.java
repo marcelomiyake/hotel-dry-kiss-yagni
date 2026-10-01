@@ -46,6 +46,7 @@ class ReservationFlowIntegrationTest {
     private static final LocalDate CHECK_IN = LocalDate.now().plusDays(80);
     private static final LocalDate CHECK_OUT = CHECK_IN.plusDays(2);
     private static final UUID RESERVATION_ID = UUID.randomUUID();
+    private static final UUID JOURNEY_ID = UUID.randomUUID();
     private static final UUID PAYMENT_ID = UUID.randomUUID();
 
     @Container
@@ -73,6 +74,9 @@ class ReservationFlowIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private ReservationJourneyRepository journeys;
 
     @MockitoBean
     private CatalogClient catalog;
@@ -151,6 +155,10 @@ class ReservationFlowIntegrationTest {
         assertThat(history.getResolvedException()).isNull();
         assertThat(history.getResponse().getStatus()).isEqualTo(200);
         assertThat(history.getResponse().getContentAsString()).contains("Alex Guest");
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM reservations.reservation_journeys WHERE id = ?",
+                String.class,
+                JOURNEY_ID)).isEqualTo("COMPLETED");
         mvc.perform(get("/api/reservations/{id}", UUID.randomUUID()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("reservation_not_found"));
@@ -200,6 +208,42 @@ class ReservationFlowIntegrationTest {
                 .andExpect(jsonPath("$.code").value("invalid_request"));
     }
 
+    @Test
+    void storesAbandonedJourneyAndKeepsTerminalStatus() throws Exception {
+        UUID journeyId = UUID.randomUUID();
+        mvc.perform(post("/api/reservation-journeys/events").contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(new JourneyEventRequest(
+                                journeyId, JourneyEventType.STARTED, JourneyScreen.DETAILS))))
+                .andExpect(status().isNoContent());
+        mvc.perform(post("/api/reservation-journeys/events").contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(new JourneyEventRequest(
+                                journeyId, JourneyEventType.SCREEN_VIEWED, JourneyScreen.CHECKOUT))))
+                .andExpect(status().isNoContent());
+        mvc.perform(post("/api/reservation-journeys/events").contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(new JourneyEventRequest(
+                                journeyId, JourneyEventType.ABANDONED, JourneyScreen.CHECKOUT))))
+                .andExpect(status().isNoContent());
+
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM reservations.reservation_journeys WHERE id = ?", String.class, journeyId))
+                .isEqualTo("ABANDONED");
+        assertThat(jdbc.queryForObject(
+                "SELECT current_screen FROM reservations.reservation_journeys WHERE id = ?", String.class, journeyId))
+                .isEqualTo("CHECKOUT");
+        mvc.perform(post("/api/reservation-journeys/events").contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(new JourneyEventRequest(
+                                journeyId, JourneyEventType.SCREEN_VIEWED, JourneyScreen.DETAILS))))
+                .andExpect(status().isNoContent());
+        assertThat(jdbc.queryForObject(
+                "SELECT current_screen FROM reservations.reservation_journeys WHERE id = ?", String.class, journeyId))
+                .isEqualTo("CHECKOUT");
+        journeys.complete(journeyId);
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM reservations.reservation_journeys WHERE id = ?", String.class, journeyId))
+                .isEqualTo("COMPLETED");
+        journeys.complete(null);
+    }
+
     private CatalogHotel hotel() {
         return new CatalogHotel(HOTEL_ID, "Four Seasons Hotel Ritz Lisbon", "Lisbon", "Avenidas Novas",
                 "Rua Rodrigo da Fonseca 88", "Portugal", "A landmark city address.",
@@ -215,6 +259,6 @@ class ReservationFlowIntegrationTest {
 
     private String requestJson(String guestName, String email) throws Exception {
         return json.writeValueAsString(new ReservationRequest(RESERVATION_ID, HOTEL_ID, ROOM_ID,
-                CHECK_IN, CHECK_OUT, 1, 2, guestName, email));
+                CHECK_IN, CHECK_OUT, 1, 2, guestName, email, JOURNEY_ID));
     }
 }

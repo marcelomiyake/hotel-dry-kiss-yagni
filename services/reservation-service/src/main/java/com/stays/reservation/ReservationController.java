@@ -21,14 +21,17 @@ public class ReservationController {
     private final ReservationService reservations;
     private final ReservationTransactions transactions;
     private final InventoryRepository inventory;
+    private final ReservationJourneyRepository journeys;
 
     public ReservationController(
             ReservationService reservations,
             ReservationTransactions transactions,
-            InventoryRepository inventory) {
+            InventoryRepository inventory,
+            ReservationJourneyRepository journeys) {
         this.reservations = reservations;
         this.transactions = transactions;
         this.inventory = inventory;
+        this.journeys = journeys;
     }
 
     @GetMapping("/reservations")
@@ -44,6 +47,12 @@ public class ReservationController {
     @PostMapping("/reservations")
     public ResponseEntity<Reservation> book(@Valid @RequestBody ReservationRequest request) {
         return ResponseEntity.ok(reservations.book(request));
+    }
+
+    @PostMapping("/reservation-journeys/events")
+    public ResponseEntity<Void> trackJourney(@Valid @RequestBody JourneyEventRequest event) {
+        journeys.track(event);
+        return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/reservations/{id}")

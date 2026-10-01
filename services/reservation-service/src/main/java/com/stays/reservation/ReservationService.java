@@ -14,16 +14,19 @@ public class ReservationService {
     private final RateClient rates;
     private final PaymentClient payments;
     private final ReservationTransactions transactions;
+    private final ReservationJourneyRepository journeys;
 
     public ReservationService(
             CatalogClient catalog,
             RateClient rates,
             PaymentClient payments,
-            ReservationTransactions transactions) {
+            ReservationTransactions transactions,
+            ReservationJourneyRepository journeys) {
         this.catalog = catalog;
         this.rates = rates;
         this.payments = payments;
         this.transactions = transactions;
+        this.journeys = journeys;
     }
 
     public Reservation book(ReservationRequest request) {
@@ -47,7 +50,9 @@ public class ReservationService {
             throw new ApiException(HttpStatus.CONFLICT, "reservation_closed", "This reservation cannot be completed.");
         }
         Payment payment = payments.charge(new PaymentRequest(request.reservationId(), reservation.total(), request.guestEmail()));
-        return transactions.markPaid(request.reservationId(), payment.id());
+        Reservation confirmed = transactions.markPaid(request.reservationId(), payment.id());
+        journeys.complete(request.journeyId());
+        return confirmed;
     }
 
     public Reservation cancel(UUID id) {

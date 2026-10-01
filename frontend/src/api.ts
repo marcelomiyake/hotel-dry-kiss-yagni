@@ -15,6 +15,12 @@ export class ApiError extends Error {
   }
 }
 
+export function errorMessage(error: unknown): string {
+  if (error instanceof ApiError) return error.message;
+  if (error instanceof Error) return error.message;
+  return "The request could not be completed. Try again.";
+}
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const requestUrl = new URL(path, window.location.origin);
   if (requestUrl.origin !== window.location.origin || !requestUrl.pathname.startsWith("/api/")) {

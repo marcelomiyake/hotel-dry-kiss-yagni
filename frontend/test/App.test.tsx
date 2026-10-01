@@ -84,8 +84,21 @@ function setFetch(...responses: Response[]) {
   return fetchMock;
 }
 
+function readBlob(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(blob);
+  });
+}
+
 beforeEach(() => {
   vi.spyOn(crypto, "randomUUID").mockReturnValue("11111111-2222-4333-8444-555555555555");
+  Object.defineProperty(navigator, "sendBeacon", {
+    configurable: true,
+    value: vi.fn().mockReturnValue(true),
+  });
 });
 
 afterEach(() => {
@@ -127,8 +140,14 @@ describe("hotel reservation experience", () => {
     expect(await screen.findByRole("heading", { name: "Your Lisbon stay is on the list." })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/reservations", expect.objectContaining({
       method: "POST",
-      body: expect.stringContaining('"guestEmail":"alex@example.com"'),
+      body: expect.stringContaining('"journeyId":"11111111-2222-4333-8444-555555555555"'),
     }));
+    const trackedPayloads = vi.mocked(navigator.sendBeacon).mock.calls.map(([, payload]) => payload as Blob);
+    const trackedEvents = await Promise.all(trackedPayloads.map(async (payload) =>
+      JSON.parse(await readBlob(payload)) as { eventType: string; screen: string }));
+    const trackedScreens = trackedEvents.map(({ eventType, screen: trackedScreen }) => ({ eventType, screen: trackedScreen }));
+    expect(trackedScreens).toContainEqual({ eventType: "STARTED", screen: "DETAILS" });
+    expect(trackedScreens).toContainEqual({ eventType: "SCREEN_VIEWED", screen: "CHECKOUT" });
 
     fireEvent.click(screen.getByRole("button", { name: /View my bookings/ }));
     expect(await screen.findByRole("heading", { name: "My bookings", level: 1 })).toBeInTheDocument();
@@ -176,6 +195,37 @@ describe("hotel reservation experience", () => {
     fireEvent.change(screen.getByLabelText("Email address used for booking"), { target: { value: "" } });
     fireEvent.submit(screen.getByRole("button", { name: "Find bookings" }).closest("form")!);
     expect(await screen.findByRole("alert")).toHaveTextContent("Enter the email address used");
+  });
+
+  it("records the screen when a reservation is abandoned in the app", async () => {
+    setFetch(response(searchResult));
+    render(<HotelApp />);
+    fireEvent.click(screen.getByRole("button", { name: "Search stays" }));
+    expect(await screen.findByText("2 stays to compare")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "View rooms" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Continue to guest details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Explore" }));
+    await waitFor(() => expect(vi.mocked(navigator.sendBeacon).mock.calls).toHaveLength(3));
+    const eventPayloads = vi.mocked(navigator.sendBeacon).mock.calls.map(([, payload]) => payload as Blob);
+    const events = await Promise.all(eventPayloads.map(async (payload) =>
+      JSON.parse(await readBlob(payload)) as { eventType: string; screen: string }));
+    expect(events.map(({ eventType, screen: trackedScreen }) => ({ eventType, screen: trackedScreen })))
+      .toContainEqual({ eventType: "ABANDONED", screen: "CHECKOUT" });
+  });
+
+  it("records the current screen when the browser page closes", async () => {
+    setFetch(response(searchResult));
+    render(<HotelApp />);
+    fireEvent.click(screen.getByRole("button", { name: "Search stays" }));
+    expect(await screen.findByText("2 stays to compare")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "View rooms" })[0]);
+    fireEvent(window, new Event("pagehide"));
+    await waitFor(() => expect(vi.mocked(navigator.sendBeacon).mock.calls).toHaveLength(2));
+    const payloads = vi.mocked(navigator.sendBeacon).mock.calls.map(([, payload]) => payload as Blob);
+    const events = await Promise.all(payloads.map(async (payload) =>
+      JSON.parse(await readBlob(payload)) as { eventType: string; screen: string }));
+    expect(events.map(({ eventType, screen: trackedScreen }) => ({ eventType, screen: trackedScreen })))
+      .toContainEqual({ eventType: "ABANDONED", screen: "DETAILS" });
   });
 
   it("updates, adds, and removes a room type from staff", async () => {

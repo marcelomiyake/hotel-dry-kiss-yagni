@@ -12,6 +12,7 @@ This is the production React frontend served from a local preview. The API-backe
 
 - Search Lisbon hotels by destination, dates, and guest count; compare live room availability and daily rates.
 - Reserve by room type. PostgreSQL stores inventory per date, permits up to 10% overbooking, and uses version-checked updates to protect concurrent bookings.
+- Record reservation journeys in PostgreSQL and mark the last viewed booking screen when a guest abandons before payment.
 - Reuse a reservation UUID as an idempotency key. Repeating the same request returns the existing reservation; changing its details returns a conflict.
 - View reservation history by email and cancel a confirmed reservation. Cancellation releases inventory and records a simulated refund.
 - Give staff a protected screen for editing room types, capacity, inventory, and nightly rates.
@@ -24,7 +25,7 @@ The seeded catalog has two Lisbon hotels. Payments are intentionally simulated: 
 | --- | --- |
 | `hotel-service` | Hotel and room type catalog, including staff updates |
 | `rate-service` | Per-night quotes, weekday/weekend rates, and staff rate schedules |
-| `reservation-service` | Search, date inventory, bookings, idempotency, cancellation |
+| `reservation-service` | Search, date inventory, bookings, idempotency, cancellation, reservation journey analytics |
 | `payment-service` | Idempotent demo charges and refunds |
 | `service-common` | Shared API errors, health endpoint, and staff-key filter |
 | React web app | Search, stay details, checkout, history, and staff flow |
@@ -60,6 +61,7 @@ kubectl -n hotel-reservation get deployments,pods,services
 | `GET /api/hotels?destination=Lisbon` | Read hotel catalog |
 | `GET /api/rates/quote?roomTypeId=…&checkIn=…&checkOut=…` | Quote every night in a stay |
 | `POST /api/reservations` | Create or replay a reservation |
+| `POST /api/reservation-journeys/events` | Record a started journey, viewed booking screen, or abandonment event |
 | `GET /api/reservations?email=…` | Read a guest’s reservation history |
 | `DELETE /api/reservations/{id}` | Cancel a reservation and refund the demo payment |
 | `POST /api/admin/hotels/{hotelId}/room-types` | Add a room type (requires `X-Admin-Key`) |
@@ -88,7 +90,7 @@ docker run --rm --network=host \
   -w /workspace maven:3.9-eclipse-temurin-25 mvn -B verify
 ```
 
-Coverage is reported by Vitest and JaCoCo. The verified frontend line coverage is **91.17%** and combined Java line coverage is **83.80%**. SonarCloud results and the local visual QA status are recorded in the analysis below.
+Coverage is reported by Vitest and JaCoCo. The latest verified frontend line coverage is **92.02%** and combined Java line coverage is **85.01%**. SonarCloud results and the local visual QA status are recorded in the analysis below.
 
 SonarQube Cloud project: [Hotel Reservation System](https://sonarcloud.io/project/overview?id=marcelomiyake_hotel-dry-kiss-yagni). Project configuration is in `sonar-project.properties`.
 
@@ -126,3 +128,29 @@ Token counters are from the final Codex thread usage record for this task; the s
 | Estimated total | **$0.99** |
 
 The model-token estimate is `(input − cached input) × $0.10/M + cached input × $0.01/M + output × $0.50/M`. The input count includes cached input, and reasoning tokens are part of output; neither is double-counted. The web-search estimate applies the listed $10 per 1,000 runs to 15 web-tool calls. These estimates use the official rate card and are not an invoice; actual billing depends on the workspace agreement.
+
+## Reservation abandonment analytics
+
+Reservation tracking starts when a guest opens hotel details, follows the guest details and checkout screens, and ends as `COMPLETED` after payment succeeds or `ABANDONED` when the guest leaves the flow or closes the page. PostgreSQL stores an opaque journey UUID, the last screen (`DETAILS` or `CHECKOUT`), status, and timestamps. No guest name, email, dates, hotel, or room data is copied into the analytics table. The existing page title, description, social metadata, and structured data remain in place; a public `robots.txt` is also served for preview and deployment.
+
+### Prompt
+
+> I want you to implement a new feature that identifies when a user starts a reservation but abandons it before paying. I want us to track which screen the user stopped at before abandoning the reservation. No administrative frontend implementation is needed; I want the data stored in the database (it doesn't need to be the same existing relational database) so we can use it later to improve the system. So it's not necessary to change the frontend features for the user, but you can change the structure to track user events. In this case, if you change it, the frontend should have a perfect Lighthouse grade and good SEO META in 1 Click. Complete this job with zero SonarQube issues (not only new, but zero in total) and test coverage above 80%. I also want to add a new section to README.md with statistics for this new feature. Include the number of changes (how much was deleted, created, changed, etc.), an analysis that includes this prompt, the harness used here (Codex, GPT-6 Luna with max effort), and the token costs from the sessions to complete this task (input tokens, cache tokens, reasoning tokens, output tokens), plus LOC. The cache and sessions were empty just before starting this session. Consult the OpenAI official documentation for token prices to estimate total costs. Commit following https://www.conventionalcommits.org/and push to GitHub after all.
+
+### Build record
+
+| Measure | Result |
+| --- | --- |
+| Harness | Codex · GPT-6 Luna · max effort |
+| Reservation flow | Hotel details → checkout → confirmed or abandoned with last screen |
+| Frontend tests | 18 passed; line coverage 92.02% (Vitest) |
+| Java tests | 20 passed; full Maven reactor with PostgreSQL Testcontainers |
+| Combined Java coverage | 85.01% line coverage (JaCoCo) |
+| SonarQube | 0 open issues; quality gate passed (final staged-code analysis) |
+| Lighthouse | 100 performance, accessibility, best practices, and SEO on the mobile simulated audit |
+| Production LOC | 3,134 nonblank lines in 59 Java/frontend source files |
+| Test LOC | 888 nonblank lines in 12 Java/Vitest test files |
+| Change totals | 23 files: 11 added (including 3 responsive images), 12 modified, 0 deleted; 807 insertions, 393 deletions, net +414 text lines; 153,948 binary bytes added |
+| Token usage | 26,171,295 input (25,815,552 cached), 70,136 reasoning, 105,900 output tokens; estimated token cost **$0.34667982** |
+
+Token counters are from the one local Codex session; the cache started empty per the prompt. Input includes cached input, and reasoning tokens are part of output. OpenAI's official [GPT-6 Luna API pricing](https://developers.openai.com/api/docs/pricing) lists $0.10 / 1M uncached input, $0.01 / 1M cached input, and $0.50 / 1M output for standard short-context use; its [reasoning token documentation](https://developers.openai.com/api/docs/guides/reasoning) confirms reasoning tokens are billed as output. The estimate is `(26,171,295 − 25,815,552) × $0.10/M + 25,815,552 × $0.01/M + 105,900 × $0.50/M = $0.34667982`. This API-equivalent estimate is not a Codex invoice or workspace charge.

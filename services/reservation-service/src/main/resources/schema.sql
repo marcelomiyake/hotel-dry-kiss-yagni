@@ -37,6 +37,18 @@ CREATE TABLE IF NOT EXISTS reservations.bookings (
 CREATE INDEX IF NOT EXISTS bookings_email_created_idx
     ON reservations.bookings (lower(guest_email), created_at DESC);
 
+CREATE TABLE IF NOT EXISTS reservations.reservation_journeys (
+    id uuid PRIMARY KEY,
+    current_screen varchar(32) NOT NULL CHECK (current_screen IN ('DETAILS', 'CHECKOUT')),
+    status varchar(16) NOT NULL CHECK (status IN ('STARTED', 'ABANDONED', 'COMPLETED')),
+    started_at timestamptz NOT NULL DEFAULT now(),
+    last_activity_at timestamptz NOT NULL DEFAULT now(),
+    ended_at timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS reservation_journeys_status_screen_idx
+    ON reservations.reservation_journeys (status, current_screen, started_at DESC);
+
 INSERT INTO reservations.room_inventory (hotel_id, room_type_id, inventory_date, total_inventory)
 SELECT inventory.hotel_id, inventory.room_type_id, stay_date::date, inventory.total_inventory
 FROM (VALUES
