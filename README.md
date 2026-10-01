@@ -152,5 +152,6 @@ Reservation tracking starts when a guest opens hotel details, follows the guest 
 | Test LOC | 888 nonblank lines in 12 Java/Vitest test files |
 | Change totals | 23 files: 11 added (including 3 responsive images), 12 modified, 0 deleted; 807 insertions, 393 deletions, net +414 text lines; 153,948 binary bytes added |
 | Token usage | 26,171,295 input (25,815,552 cached), 70,136 reasoning, 105,900 output tokens; estimated token cost **$0.34667982** |
+| Worked for | 1h 6m 58s |
 
 Token counters are from the one local Codex session; the cache started empty per the prompt. Input includes cached input, and reasoning tokens are part of output. OpenAI's official [GPT-6 Luna API pricing](https://developers.openai.com/api/docs/pricing) lists $0.10 / 1M uncached input, $0.01 / 1M cached input, and $0.50 / 1M output for standard short-context use; its [reasoning token documentation](https://developers.openai.com/api/docs/guides/reasoning) confirms reasoning tokens are billed as output. The estimate is `(26,171,295 − 25,815,552) × $0.10/M + 25,815,552 × $0.01/M + 105,900 × $0.50/M = $0.34667982`. This API-equivalent estimate is not a Codex invoice or workspace charge.
